@@ -172,19 +172,14 @@ jobs:
           print("Pure-source CMake and stub headers configured successfully.")
           '@ | python -
 
-      - name: Compile MFGUnlocker.dll with Visual Studio 2022
+- name: Compile MFGUnlocker.dll with Visual Studio 2026
         shell: pwsh
         run: |
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $vcVer = (Get-ChildItem "$vsPath\VC\Tools\MSVC" | Sort-Object Name -Descending | Select-Object -First 1).Name
           $vkRoot = $env:VULKAN_SDK -replace '\\', '/'
 
           cmake -S source/native -B build `
-            -G "Visual Studio 17 2022" `
-            -A "x64,version=10.0.22621.0" `
-            -T v143 `
-            -DCMAKE_GENERATOR_INSTANCE="$vsPath" `
-            -DCMAKE_VS_GLOBALS="VCToolsVersion=$vcVer" `
+            -G "Visual Studio 18 2026" `
+            -A x64 `
             -DSTREAMLINE_ROOT="C:/SDKs/Streamline-2.14.1" `
             -DIMGUI_ROOT="C:/SDKs/imgui" `
             -DXESS_SDK_ROOT="C:/SDKs/xess-3.0.2" `

@@ -27,8 +27,8 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/intel/xess/archive/refs/tags/v3.0.2.zip" -OutFile C:\SDKs\xess.zip
           Expand-Archive C:\SDKs\xess.zip -DestinationPath C:\SDKs
 
-          # Official Khronos Vulkan 1.4 headers and SPIR-V grammar JSON
-          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.zip" -OutFile C:\SDKs\vkheaders.zip
+          # Official Khronos Vulkan 1.4.363+ headers and SPIR-V grammar JSON
+          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/heads/main.zip" -OutFile C:\SDKs\vkheaders.zip
           Expand-Archive C:\SDKs\vkheaders.zip -DestinationPath C:\SDKs
           Invoke-WebRequest -Uri "https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.304.0.zip" -OutFile C:\SDKs\spvheaders.zip
           Expand-Archive C:\SDKs\spvheaders.zip -DestinationPath C:\SDKs
@@ -152,6 +152,12 @@ jobs:
               encoding="utf-8",
           )
 
+          (gen / "embedded_xefg_cuda.generated.h").write_text(
+              '#pragma once\n#include "runtime_payload.h"\nnamespace xefg_cuda::embedded {\n'
+              'inline constexpr xess_payload::Asset fatbin{7300, "cuda/xefg_cuda_layers.fatbin", "", 0};\n}\n',
+              encoding="utf-8",
+          )
+
           (gen / "embedded_xess_programs.generated.h").write_text(
               '#pragma once\n#include "runtime_payload.h"\nnamespace xess_payload::embedded {\n'
               'inline constexpr Asset assets[] = {{0u, "", "", 0u}};\n}\n',
@@ -189,9 +195,9 @@ jobs:
             -DSTREAMLINE_ROOT="C:/SDKs/Streamline-2.14.1" `
             -DIMGUI_ROOT="C:/SDKs/imgui" `
             -DXESS_SDK_ROOT="C:/SDKs/xess-3.0.2" `
-            -DVULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
+            -DVULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-main/include" `
             -DGLSLANG_VALIDATOR="$glslang" `
-            -DXVK_VULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
+            -DXVK_VULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-main/include" `
             -DMFG_UNLOCK_XESS=ON `
             -DMFG_UNLOCK_BUILD_SINGLE_MODULE=ON `
             -DMFG_UNLOCK_SESSION_DIAGNOSTICS=ON `

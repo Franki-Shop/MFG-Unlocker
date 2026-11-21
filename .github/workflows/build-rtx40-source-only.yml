@@ -27,6 +27,10 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/intel/xess/archive/refs/tags/v3.0.2.zip" -OutFile C:\SDKs\xess.zip
           Expand-Archive C:\SDKs\xess.zip -DestinationPath C:\SDKs
 
+          # Official Khronos Vulkan 1.4 headers + SPIR-V grammar JSON
+          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.zip" -OutFile C:\SDKs\vkheaders.zip
+          Expand-Archive C:\SDKs\vkheaders.zip -DestinationPath C:\SDKs
+
           # Official Dear ImGui source pinned by MFG-Unlocker
           git clone https://github.com/ocornut/imgui.git C:\SDKs\imgui
           git -C C:\SDKs\imgui checkout 3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c
@@ -80,7 +84,7 @@ jobs:
                   COMMAND_ERROR_IS_FATAL ANY)
               file(MAKE_DIRECTORY "${MFG_GENERATED}/rtx_hair")
               execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/rtx_hair/spirv_grammar.py"
-                  "${XVK_VULKAN_INCLUDE_DIR}/spirv/unified1/spirv.core.grammar.json" "${MFG_GENERATED}/rtx_hair/spirv_grammar.inl"
+                  "${XVK_VULKAN_INCLUDE_DIR}/../registry/spirv.core.grammar.json" "${MFG_GENERATED}/rtx_hair/spirv_grammar.inl"
                   COMMAND_ERROR_IS_FATAL ANY)'''
 
           cm_path.write_text(text[:s_idx] + replacement + text[e_idx:], encoding="utf-8")
@@ -171,7 +175,11 @@ jobs:
       - name: Compile MFGUnlocker.dll with Visual Studio 2026
         shell: pwsh
         run: |
-          $vkRoot = $env:VULKAN_SDK -replace '\\', '/'
+          $glslang = (Get-Command glslangValidator.exe -ErrorAction SilentlyContinue).Source
+          if (-not $glslang) {
+            $glslang = (Get-ChildItem -Path $env:VULKAN_SDK -Recurse -Filter "glslangValidator.exe" | Select-Object -First 1).FullName
+          }
+          $glslang = $glslang -replace '\\', '/'
 
           cmake -S source/native -B build `
             -G "Visual Studio 18 2026" `
@@ -179,9 +187,9 @@ jobs:
             -DSTREAMLINE_ROOT="C:/SDKs/Streamline-2.14.1" `
             -DIMGUI_ROOT="C:/SDKs/imgui" `
             -DXESS_SDK_ROOT="C:/SDKs/xess-3.0.2" `
-            -DVULKAN_INCLUDE_DIR="$vkRoot/Include" `
-            -DGLSLANG_VALIDATOR="$vkRoot/Bin/glslangValidator.exe" `
-            -DXVK_VULKAN_INCLUDE_DIR="$vkRoot/Include" `
+            -DVULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
+            -DGLSLANG_VALIDATOR="$glslang" `
+            -DXVK_VULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
             -DMFG_UNLOCK_XESS=ON `
             -DMFG_UNLOCK_BUILD_SINGLE_MODULE=ON `
             -DMFG_UNLOCK_SESSION_DIAGNOSTICS=ON `

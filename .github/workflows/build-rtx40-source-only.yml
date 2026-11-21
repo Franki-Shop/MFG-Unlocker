@@ -1,0 +1,180 @@
+name: Build RTX 40 MFGUnlocker (100% Pure Source)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout pure source code
+        uses: actions/checkout@v4
+
+      - name: Download official open-source SDK headers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\SDKs | Out-Null
+
+          # Official NVIDIA Streamline SDK v2.14.1 (includes NGX & NVAPI headers)
+          Invoke-WebRequest -Uri "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.1/streamline-sdk-v2.14.1.zip" -OutFile C:\SDKs\sl.zip
+          Expand-Archive C:\SDKs\sl.zip -DestinationPath C:\SDKs\Streamline-2.14.1
+
+          # Official Intel XeSS SDK v3.0.2 public MIT headers
+          Invoke-WebRequest -Uri "https://github.com/intel/xess/archive/refs/tags/v3.0.2.zip" -OutFile C:\SDKs\xess.zip
+          Expand-Archive C:\SDKs\xess.zip -DestinationPath C:\SDKs
+
+          # Official Khronos Vulkan 1.4 headers + SPIR-V grammar JSON
+          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.zip" -OutFile C:\SDKs\vkheaders.zip
+          Expand-Archive C:\SDKs\vkheaders.zip -DestinationPath C:\SDKs
+
+          # Official Dear ImGui source pinned by MFG-Unlocker
+          git clone https://github.com/ocornut/imgui.git C:\SDKs\imgui
+          git -C C:\SDKs\imgui checkout 3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c
+
+      - name: Install LunarG Vulkan SDK 1.2.176.1 (glslangValidator)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.2.176.1/windows/VulkanSDK-1.2.176.1-Installer.exe" -OutFile C:\Vulkan12.exe
+          Start-Process -Wait -FilePath C:\Vulkan12.exe -ArgumentList "--root C:\VulkanSDK\1.2.176.1 --accept-licenses --default-answer --confirm-command install"
+
+      - name: Configure pure-source build (omit unused RTX 30 / Intel XeSS blobs)
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          cm_path = Path("source/native/CMakeLists.txt")
+          text = cm_path.read_text(encoding="utf-8")
+
+          # 1. Allow building without RTX 30 (SM86) embedded .fatbin kernels
+          old_ampere = """if(NOT MFG_AMPERE_EMBEDDED_KERNELS)
+              message(FATAL_ERROR "The unified distribution requires embedded SM86 kernels")
+          endif()"""
+          assert old_ampere in text, "Ampere block not found"
+          text = text.replace(old_ampere, "# Pure RTX 40 source build: SM86 caches omitted")
+
+          # 2. Replace external proprietary shader/fatbin blob generators with empty C++20 stub tables
+          start_marker = "    # vkdlss5.1:"
+          end_marker = '        list(APPEND MFG_XESS_RESOURCES "${packed_xvk}")\n    endif()'
+          s_idx = text.index(start_marker)
+          e_idx = text.index(end_marker) + len(end_marker)
+
+          replacement = '''    include_directories("${MFG_GENERATED}")
+              set(MFG_DLSS5_VK_RESOURCE "${MFG_GENERATED}/dlss5_vk.packed.rc")
+              set(MFG_XESS_SOURCES
+                  xess/xess_mod.cpp xess/universal_hooks.cpp xess/internal_api_guards.asm
+                  xess/sdk_pacing.cpp xess/game_profile.cpp xess/runtime_payload.cpp xess/xess_runtime.cpp
+                  xess/host_unlock.cpp xess/intel_native.cpp xess/motion_fill.cpp xess/hudless_match.cpp xess/cuda/cuda_route.cpp xess/cuda/provider_list.cpp
+                  xess/d3d12_host.cpp xess/host_xell_binding.cpp)
+              set(MFG_XESS_RESOURCES
+                  "${MFG_GENERATED}/xess_programs.packed.rc"
+                  "${MFG_GENERATED}/xess_shaders.packed.rc"
+                  "${MFG_GENERATED}/xefg_cuda.packed.rc"
+                  "${MFG_GENERATED}/xvk_programs.packed.rc")
+              set(MFG_XVK_SOURCES
+                  xess/vulkan/xvk_device.cpp xess/vulkan/xvk_resource.cpp xess/vulkan/xvk_queue.cpp xess/vulkan/xvk_commandlist.cpp
+                  xess/vulkan/xvk_tensor.cpp xess/vulkan/xvk_pipeline.cpp xess/vulkan/xvk_programs.cpp xess/vulkan/xvk_dxgi.cpp xess/vulkan/xvk_util.cpp
+                  xess/vulkan/vk_host.cpp xess/vulkan/vk_xefg_api.cpp xess/vulkan/vk_provider.cpp xess/vulkan/xefg_internal.cpp
+                  xess/ngx_provider.cpp xess/d3d12_provider.cpp
+                  xess/vulkan/xemfg_provider_inprocess.cpp
+                  rtx_hair/vk_hair.cpp rtx_hair/vk_dots_builder.cpp rtx_hair/lss_spirv.cpp rtx_hair/spirv_module.cpp)
+              execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/xess/vulkan/generate_vk_input_shaders.py"
+                  --glslang "${GLSLANG_VALIDATOR}" --source "${CMAKE_CURRENT_SOURCE_DIR}" --output "${MFG_GENERATED}"
+                  COMMAND_ERROR_IS_FATAL ANY)
+              execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/rtx_hair/generate_vk_hair_shaders.py"
+                  --glslang "${GLSLANG_VALIDATOR}" --source "${CMAKE_CURRENT_SOURCE_DIR}" --output "${MFG_GENERATED}"
+                  COMMAND_ERROR_IS_FATAL ANY)
+              file(MAKE_DIRECTORY "${MFG_GENERATED}/rtx_hair")
+              execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/rtx_hair/spirv_grammar.py"
+                  "${XVK_VULKAN_INCLUDE_DIR}/../registry/spirv.core.grammar.json" "${MFG_GENERATED}/rtx_hair/spirv_grammar.inl"
+                  COMMAND_ERROR_IS_FATAL ANY)'''
+
+          cm_path.write_text(text[:s_idx] + replacement + text[e_idx:], encoding="utf-8")
+
+          gen = Path("build/generated")
+          gen.mkdir(parents=True, exist_ok=True)
+
+          # Empty .rc files for unused resource groups
+          for rc_name in ["dlss5_vk.packed.rc", "xess_programs.packed.rc", "xess_shaders.packed.rc", "xefg_cuda.packed.rc", "xvk_programs.packed.rc"]:
+              (gen / rc_name).write_text("#include <windows.h>\n", encoding="utf-8")
+
+          def write_packed_h(filename, group_name, slot, res_id):
+              (gen / filename).write_text(
+                  f'#pragma once\n#include "embedded_payload.h"\nnamespace embedded_payload::packed {{\n'
+                  f'inline constexpr Group {group_name}{{{slot}u, {res_id}u, 0u, 0u, "", "{group_name}"}};\n'
+                  f'inline constexpr Item {group_name}_items[] = {{{{0u, 0u, 0u}}}};\n}}\n',
+                  encoding="utf-8",
+              )
+
+          write_packed_h("dlss5_vk.packed.h", "dlss5_vk", 5, 3905)
+          write_packed_h("xess_programs.packed.h", "xess_programs", 1, 3901)
+          write_packed_h("xess_shaders.packed.h", "xess_shaders", 2, 3902)
+          write_packed_h("xefg_cuda.packed.h", "xefg_cuda", 3, 3903)
+          write_packed_h("xvk_programs.packed.h", "xvk_programs", 4, 3904)
+
+          (gen / "dlss5_vk_spirv.h").write_text(
+              "#pragma once\n#include <cstdint>\nnamespace dlss5::vulkan::spirv {\n"
+              + "\n".join(f"inline constexpr uint32_t {n} = 0u;" for n in [
+                  "encode", "meter", "decode_rgba16f", "decode_rgba32f", "decode_rgba8",
+                  "copy_in_rgba16f", "copy_in_rgba32f", "copy_in_rgba8"
+              ])
+              + "\n}\n",
+              encoding="utf-8",
+          )
+
+          (gen / "embedded_xess_programs.generated.h").write_text(
+              '#pragma once\n#include "runtime_payload.h"\nnamespace xess_payload::embedded {\n'
+              'inline constexpr Asset assets[] = {{0u, "", "", 0u}};\n}\n',
+              encoding="utf-8",
+          )
+
+          (gen / "embedded_xess_shaders.generated.h").write_text(
+              '#pragma once\n#include "runtime_payload.h"\nnamespace xess_payload::embedded {\n'
+              'inline constexpr Asset shaders[] = {{0u, "", "", 0u}};\n}\n',
+              encoding="utf-8",
+          )
+
+          (gen / "embedded_xvk_programs.generated.h").write_text(
+              '#pragma once\n#include "xvk_embedded.h"\nnamespace xvk::embedded {\n'
+              'inline constexpr char manifestSha256[] = "";\n'
+              'inline constexpr BindingRow bindings[] = {{0u, 0u}};\n'
+              'inline constexpr ProgramAsset programs[] = {{"", 0u, "", 0u, 0u, 0u, 0u}};\n}\n',
+              encoding="utf-8",
+          )
+          print("Pure-source CMake and stub headers configured successfully.")
+          '@ | python -
+
+      - name: Compile MFGUnlocker.dll with Visual Studio 2022
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $vcVer = (Get-ChildItem "$vsPath\VC\Tools\MSVC" | Sort-Object Name -Descending | Select-Object -First 1).Name
+
+          cmake -S source/native -B build `
+            -G "Visual Studio 17 2022" `
+            -A "x64,version=10.0.22621.0" `
+            -T v143 `
+            -DCMAKE_GENERATOR_INSTANCE="$vsPath" `
+            -DCMAKE_VS_GLOBALS="VCToolsVersion=$vcVer" `
+            -DSTREAMLINE_ROOT="C:/SDKs/Streamline-2.14.1" `
+            -DIMGUI_ROOT="C:/SDKs/imgui" `
+            -DXESS_SDK_ROOT="C:/SDKs/xess-3.0.2" `
+            -DVULKAN_INCLUDE_DIR="C:/VulkanSDK/1.2.176.1/Include" `
+            -DGLSLANG_VALIDATOR="C:/VulkanSDK/1.2.176.1/Bin/glslangValidator.exe" `
+            -DXVK_VULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
+            -DMFG_UNLOCK_XESS=ON `
+            -DMFG_UNLOCK_BUILD_SINGLE_MODULE=ON `
+            -DMFG_UNLOCK_SESSION_DIAGNOSTICS=ON `
+            -DMFG_UNLOCK_NGX_CREATE_RESULT_DIAGNOSTICS=ON `
+            -DMFG_AMPERE_EMBEDDED_KERNELS=OFF `
+            -DMFG_AMPERE_KERNEL_IMAGE=PTX
+
+          cmake --build build --config Release --parallel --target RTXMFGUnified
+
+      - name: Upload Self-Built MFGUnlocker.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: MFGUnlocker-RTX40-PureSource-x64
+          path: build/Release/MFGUnlocker.dll
+          if-no-files-found: error

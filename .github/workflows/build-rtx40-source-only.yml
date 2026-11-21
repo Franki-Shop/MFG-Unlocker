@@ -27,9 +27,11 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/intel/xess/archive/refs/tags/v3.0.2.zip" -OutFile C:\SDKs\xess.zip
           Expand-Archive C:\SDKs\xess.zip -DestinationPath C:\SDKs
 
-          # Official Khronos Vulkan 1.4 headers + SPIR-V grammar JSON
+          # Official Khronos Vulkan 1.4 headers and SPIR-V grammar JSON
           Invoke-WebRequest -Uri "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.zip" -OutFile C:\SDKs\vkheaders.zip
           Expand-Archive C:\SDKs\vkheaders.zip -DestinationPath C:\SDKs
+          Invoke-WebRequest -Uri "https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.304.0.zip" -OutFile C:\SDKs\spvheaders.zip
+          Expand-Archive C:\SDKs\spvheaders.zip -DestinationPath C:\SDKs
 
           # Official Dear ImGui source pinned by MFG-Unlocker
           git clone https://github.com/ocornut/imgui.git C:\SDKs\imgui
@@ -84,7 +86,7 @@ jobs:
                   COMMAND_ERROR_IS_FATAL ANY)
               file(MAKE_DIRECTORY "${MFG_GENERATED}/rtx_hair")
               execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/rtx_hair/spirv_grammar.py"
-                  "${XVK_VULKAN_INCLUDE_DIR}/../registry/spirv.core.grammar.json" "${MFG_GENERATED}/rtx_hair/spirv_grammar.inl"
+                  "C:/SDKs/SPIRV-Headers-vulkan-sdk-1.4.304.0/include/spirv/unified1/spirv.core.grammar.json" "${MFG_GENERATED}/rtx_hair/spirv_grammar.inl"
                   COMMAND_ERROR_IS_FATAL ANY)'''
 
           cm_path.write_text(text[:s_idx] + replacement + text[e_idx:], encoding="utf-8")

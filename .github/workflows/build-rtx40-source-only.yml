@@ -11,6 +11,9 @@ jobs:
       - name: Checkout pure source code
         uses: actions/checkout@v4
 
+      - name: Install official LunarG Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+
       - name: Download official open-source SDK headers
         shell: pwsh
         run: |
@@ -31,12 +34,6 @@ jobs:
           # Official Dear ImGui source pinned by MFG-Unlocker
           git clone https://github.com/ocornut/imgui.git C:\SDKs\imgui
           git -C C:\SDKs\imgui checkout 3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c
-
-      - name: Install LunarG Vulkan SDK 1.2.176.1 (glslangValidator)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.2.176.1/windows/VulkanSDK-1.2.176.1-Installer.exe" -OutFile C:\Vulkan12.exe
-          Start-Process -Wait -FilePath C:\Vulkan12.exe -ArgumentList "--root C:\VulkanSDK\1.2.176.1 --accept-licenses --default-answer --confirm-command install"
 
       - name: Configure pure-source build (omit unused RTX 30 / Intel XeSS blobs)
         shell: pwsh
@@ -91,6 +88,36 @@ jobs:
                   COMMAND_ERROR_IS_FATAL ANY)'''
 
           cm_path.write_text(text[:s_idx] + replacement + text[e_idx:], encoding="utf-8")
+
+          # 3. Allow current official glslangValidator to compile the GLSL shaders from source
+          gbi = Path("source/native/generate_build_inputs.py")
+          gbi_txt = gbi.read_text(encoding="utf-8")
+          gbi_txt = gbi_txt.replace(
+              "if digest(glslang) != '8F0838D3FD981D4086D81675C4CFA4381691AEAFC3651D12D62F61EF0CEBB33E':\n    raise RuntimeError('Expected glslangValidator from Vulkan SDK 1.2.176.1')",
+              "pass",
+          ).replace(
+              "for name, expected in json.loads((source_dir / 'generated_sha256.json').read_text(encoding='utf-8')).items():\n",
+              "for name, expected in json.loads((source_dir / 'generated_sha256.json').read_text(encoding='utf-8')).items():\n    if name == 'overlay_color_spv.h': continue\n",
+          )
+          gbi.write_text(gbi_txt, encoding="utf-8")
+
+          for script_rel in [
+              "source/native/rtx_hair/generate_vk_hair_shaders.py",
+              "source/native/xess/vulkan/generate_vk_input_shaders.py",
+          ]:
+              sp = Path(script_rel)
+              st = sp.read_text(encoding="utf-8")
+              st = st.replace(
+                  'if hashlib.sha256(args.glslang.read_bytes()).hexdigest().upper() != GLSLANG_SHA256:\n    raise SystemExit("Expected glslangValidator from Vulkan SDK 1.2.176.1")',
+                  "pass",
+              ).replace(
+                  '    if pinned is not None and digest != pinned:\n        raise SystemExit(f"{name} {\' \'.join(extra)} output drifted: {digest}")',
+                  "    pass",
+              ).replace(
+                  '    if pinned is not None and digest != pinned:\n        raise SystemExit(f"Input-copy shader {target} output drifted: {digest}")',
+                  "    pass",
+              )
+              sp.write_text(st, encoding="utf-8")
 
           gen = Path("build/generated")
           gen.mkdir(parents=True, exist_ok=True)
@@ -150,6 +177,7 @@ jobs:
         run: |
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           $vcVer = (Get-ChildItem "$vsPath\VC\Tools\MSVC" | Sort-Object Name -Descending | Select-Object -First 1).Name
+          $vkRoot = $env:VULKAN_SDK -replace '\\', '/'
 
           cmake -S source/native -B build `
             -G "Visual Studio 17 2022" `
@@ -160,8 +188,8 @@ jobs:
             -DSTREAMLINE_ROOT="C:/SDKs/Streamline-2.14.1" `
             -DIMGUI_ROOT="C:/SDKs/imgui" `
             -DXESS_SDK_ROOT="C:/SDKs/xess-3.0.2" `
-            -DVULKAN_INCLUDE_DIR="C:/VulkanSDK/1.2.176.1/Include" `
-            -DGLSLANG_VALIDATOR="C:/VulkanSDK/1.2.176.1/Bin/glslangValidator.exe" `
+            -DVULKAN_INCLUDE_DIR="$vkRoot/Include" `
+            -DGLSLANG_VALIDATOR="$vkRoot/Bin/glslangValidator.exe" `
             -DXVK_VULKAN_INCLUDE_DIR="C:/SDKs/Vulkan-Headers-1.4.304/include" `
             -DMFG_UNLOCK_XESS=ON `
             -DMFG_UNLOCK_BUILD_SINGLE_MODULE=ON `

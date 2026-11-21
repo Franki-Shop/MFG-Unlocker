@@ -172,9 +172,9 @@ jobs:
           print("Pure-source CMake and stub headers configured successfully.")
           '@ | python -
 
-- name: Compile MFGUnlocker.dll with Visual Studio 2026
-        shell: pwsh
-        run: |
+          - name: Compile MFGUnlocker.dll with Visual Studio 2026
+            shell: pwsh
+            run: |
           $vkRoot = $env:VULKAN_SDK -replace '\\', '/'
 
           cmake -S source/native -B build `
